@@ -21,6 +21,7 @@ end
 
 require_relative "client/http_connection_wrapper"
 require_relative "client/key_pair_jwt_auth_manager"
+require_relative "client/pat_auth_manager"
 require_relative "client/single_thread_in_memory_strategy"
 require_relative "client/streaming_result_strategy"
 require_relative "client/threaded_in_memory_strategy"
@@ -92,7 +93,7 @@ module RubySnowflake
         elsif path = ENV["SNOWFLAKE_PRIVATE_KEY_PATH"]
           File.read(path)
         elsif access_token
-          nil # authenticating with a bearer token (PAT/OAuth); no key needed
+          nil # authenticating with a PAT; no key needed
         else
           raise MissingConfig, "Set ENV['SNOWFLAKE_ACCESS_TOKEN'], or ENV['SNOWFLAKE_PRIVATE_KEY'] / ENV['SNOWFLAKE_PRIVATE_KEY_PATH']"
         end
@@ -107,7 +108,7 @@ module RubySnowflake
         ENV["SNOWFLAKE_DEFAULT_WAREHOUSE"],
         ENV["SNOWFLAKE_DEFAULT_DATABASE"],
         default_role: ENV.fetch("SNOWFLAKE_DEFAULT_ROLE", nil),
-        access_token: access_token,
+        authenticator: access_token ? PatAuthManager.new(access_token) : nil,
         logger: logger,
         log_level: log_level,
         jwt_token_ttl: jwt_token_ttl,
@@ -123,7 +124,7 @@ module RubySnowflake
     def initialize(
       uri, private_key, private_key_passphrase = nil, organization, account, user, default_warehouse, default_database,
       default_role: nil,
-      access_token: nil,
+      authenticator: nil,
       logger: DEFAULT_LOGGER,
       log_level: DEFAULT_LOG_LEVEL,
       jwt_token_ttl: DEFAULT_JWT_TOKEN_TTL,
@@ -135,8 +136,7 @@ module RubySnowflake
       query_timeout: DEFAULT_QUERY_TIMEOUT
     )
       @base_uri = uri
-      @access_token = access_token
-      @key_pair_jwt_auth_manager =
+      @authenticator = authenticator ||
         KeyPairJwtAuthManager.new(organization, account, user, private_key, jwt_token_ttl, private_key_passphrase)
       @default_warehouse = default_warehouse
       @default_database = default_database
@@ -198,7 +198,7 @@ module RubySnowflake
     # This method can be used to populate the JWT token used for authentication
     # in tests that require time travel.
     def create_jwt_token
-      @key_pair_jwt_auth_manager.jwt_token
+      @authenticator.jwt_token
     end
 
     private_class_method :env_option
@@ -218,27 +218,12 @@ module RubySnowflake
         @port ||= URI.parse(@base_uri).port
       end
 
-      # Authenticate with a pre-issued bearer token (a Programmatic Access Token or
-      # OAuth token) when one was supplied, otherwise mint a key-pair JWT. A bearer
-      # token is sent with no X-Snowflake-Authorization-Token-Type header — Snowflake
-      # infers the type (the header is optional per the SQL API docs).
-      def auth_headers
-        if @access_token
-          { "Authorization" => "Bearer #{@access_token}" }
-        else
-          {
-            "Authorization" => "Bearer #{@key_pair_jwt_auth_manager.jwt_token}",
-            "X-Snowflake-Authorization-Token-Type" => "KEYPAIR_JWT"
-          }
-        end
-      end
-
       def request_with_auth_and_headers(connection, request_class, path, body=nil)
         uri = URI.parse("#{@base_uri}#{path}")
         request = request_class.new(uri)
         request["Content-Type"] = "application/json"
         request["Accept"] = "application/json"
-        auth_headers.each { |name, value| request[name] = value }
+        @authenticator.auth_headers.each { |name, value| request[name] = value }
         request.body = body unless body.nil?
 
         Retryable.retryable(tries: @http_retries + 1,
@@ -371,5 +356,24 @@ module RubySnowflake
           block.call
         end
       end
+  end
+
+  def self.jwt_client(uri:, private_key:, organization:, account:, user:,
+                      private_key_passphrase: nil,
+                      default_warehouse: nil, default_database: nil, default_role: nil, **config)
+    Client.new(
+      uri, private_key, private_key_passphrase, organization, account, user,
+      default_warehouse, default_database,
+      default_role: default_role, **config
+    )
+  end
+
+  def self.pat_client(uri:, access_token:,
+                      default_warehouse: nil, default_database: nil, default_role: nil, **config)
+    Client.new(
+      uri, nil, nil, nil, nil, nil, default_warehouse, default_database,
+      default_role: default_role,
+      authenticator: Client::PatAuthManager.new(access_token), **config
+    )
   end
 end

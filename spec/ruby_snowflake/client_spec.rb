@@ -22,26 +22,30 @@ RSpec.describe RubySnowflake::Client do
     end
   end
 
-  describe "authentication headers" do
+  describe "authentication" do
     let(:uri) { "https://org-account.snowflakecomputing.com" }
     let(:rsa_pem) { OpenSSL::PKey::RSA.new(2048).to_pem }
 
-    def build(private_key:, access_token: nil)
-      described_class.new(uri, private_key, "org", "account", "user", "wh", "db", access_token: access_token)
+    def auth_headers(client)
+      client.instance_variable_get(:@authenticator).auth_headers
     end
 
-    context "with a bearer access token (PAT / OAuth)" do
+    context "RubySnowflake.pat_client" do
       it "sends the token as a Bearer with no token-type header" do
-        headers = build(private_key: "unused", access_token: "the-pat-secret").send(:auth_headers)
+        client = RubySnowflake.pat_client(uri: uri, access_token: "the-pat-secret")
+        headers = auth_headers(client)
 
         expect(headers["Authorization"]).to eq("Bearer the-pat-secret")
         expect(headers).not_to have_key("X-Snowflake-Authorization-Token-Type")
       end
     end
 
-    context "without an access token (key-pair JWT)" do
+    context "RubySnowflake.jwt_client" do
       it "sends a signed JWT with the KEYPAIR_JWT token-type header" do
-        headers = build(private_key: rsa_pem).send(:auth_headers)
+        client = RubySnowflake.jwt_client(
+          uri: uri, private_key: rsa_pem, organization: "org", account: "account", user: "user"
+        )
+        headers = auth_headers(client)
 
         expect(headers["Authorization"]).to match(/\ABearer .+/)
         expect(headers["X-Snowflake-Authorization-Token-Type"]).to eq("KEYPAIR_JWT")

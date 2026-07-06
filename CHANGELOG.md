@@ -7,11 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 ### Added
-- `access_token:` option on `Client.new` / `Client.from_env` (`SNOWFLAKE_ACCESS_TOKEN`)
-  to authenticate with a pre-issued **bearer token** — e.g. a Programmatic Access Token
-  (PAT) or OAuth token — instead of a key-pair JWT. The token is sent as
+- `RubySnowflake.pat_client(uri:, access_token:, ...)` to authenticate with a pre-issued
+  Programmatic Access Token (PAT) instead of a key-pair JWT. The token is sent as
   `Authorization: Bearer <token>` with no `X-Snowflake-Authorization-Token-Type` header
-  (Snowflake infers the type). Closes #161.
+  (Snowflake infers the type). Also picked up from `SNOWFLAKE_ACCESS_TOKEN` by
+  `Client.from_env`. Closes #161.
+- `RubySnowflake.jwt_client(uri:, private_key:, organization:, account:, user:, ...)` —
+  a keyword-argument constructor for key-pair (JWT) authentication, equivalent to
+  `Client.new` without the positional-argument ordering.
 
 ## [1.6.0] - 2026-04-13
 ### Added

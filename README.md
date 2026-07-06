@@ -20,30 +20,45 @@ Add to your Gemfile or use `gem install rb_snowflake_client`
   gem "rb_snowflake_client"
 ```
 
-Then require, create a client
+Then require, create a client. There are two authentication methods — key-pair (JWT) and a
+Programmatic Access Token (PAT) — each with its own keyword-argument constructor:
+
 ```ruby
 require "rb_snowflake_client"
 
-
-# uses env variables, you can also new one up
-# see: https://github.com/rinsed-org/pure-ruby-snowflake-client/blob/master/lib/ruby_snowflake/client.rb#L43
-client = RubySnowflake::Client.new(
-  "https://yourinstance.region.snowflakecomputing.com", # insert your URL here
-  File.read("secrets/my_key.pem"),                      # your private key in PEM format (scroll down for instructions)
-  "snowflake-organization",                             # your account name (doesn't match your URL), using nil may be required depending on your snowflake account
-  "snowflake-account",                                  # typically your subdomain
-  "snowflake-user",                                     # Your snowflake user
-  "some_warehouse",                                     # The name of your warehouse to use by default
-  "some_database",                                      # The name of the database in the context of which the queries will run
-  default_role: "some_role",                            # The name of the role with which the queries will run. A `nil` value uses the primary role of the user.
-  max_connections: 12,                                  # Config options can be passed in
-  connection_timeout: 45,                               # See below for the full set of options
-  query_timeout: 1200,                                  # how long to wait for queries, in seconds
+# Key-pair (JWT) authentication
+client = RubySnowflake.jwt_client(
+  uri:          "https://yourinstance.region.snowflakecomputing.com", # insert your URL here
+  private_key:  File.read("secrets/my_key.pem"),  # your private key in PEM format (scroll down for instructions)
+  organization: "snowflake-organization",         # your account name (doesn't match your URL), using nil may be required depending on your snowflake account
+  account:      "snowflake-account",               # typically your subdomain
+  user:         "snowflake-user",                  # Your snowflake user
+  default_warehouse: "some_warehouse",             # The name of your warehouse to use by default
+  default_database:  "some_database",              # The name of the database in the context of which the queries will run
+  default_role: "some_role",                       # The name of the role with which the queries will run. A `nil` value uses the primary role of the user.
+  max_connections: 12,                             # Config options can be passed in
+  connection_timeout: 45,                          # See below for the full set of options
+  query_timeout: 1200,                             # how long to wait for queries, in seconds
 )
 
-# alternatively you can use the `from_env` method, which will pull these values from the following environment variables. You can either provide the path to the PEM file, or it's contents in an ENV variable.
+# Programmatic Access Token (PAT) authentication
+client = RubySnowflake.pat_client(
+  uri:          "https://yourinstance.region.snowflakecomputing.com",
+  access_token: ENV.fetch("SNOWFLAKE_ACCESS_TOKEN"), # a pre-issued Programmatic Access Token
+  default_warehouse: "some_warehouse",
+  default_database:  "some_database",
+)
+```
+
+Alternatively you can use the `from_env` method, which will pull these values from the
+environment variables below. You can either provide the path to the PEM file, or its contents
+in an ENV variable; if `SNOWFLAKE_ACCESS_TOKEN` is set it authenticates with a PAT instead.
+
+```ruby
 RubySnowflake::Client.from_env
 ```
+
+`RubySnowflake::Client.new` (positional arguments) also still works for key-pair authentication.
 Available ENV variables (see below in the config section for details)
 - `SNOWFLAKE_URI`
 - `SNOWFLAKE_PRIVATE_KEY_PATH` or `SNOWFLAKE_PRIVATE_KEY`
@@ -51,9 +66,9 @@ Available ENV variables (see below in the config section for details)
 - `SNOWFLAKE_PRIVATE_KEY_PASSPHRASE`
   - Optional, if you are using an encrypted private key
 - `SNOWFLAKE_ACCESS_TOKEN`
-  - Alternative to a private key: authenticate with a pre-issued bearer token — a
-    Programmatic Access Token (PAT) or OAuth token. When set, no private key is
-    required. (Also available as the `access_token:` keyword on `Client.new`.)
+  - Alternative to a private key: authenticate with a pre-issued Programmatic Access
+    Token (PAT). When set, no private key is required. (Also available as the
+    `access_token:` keyword on `RubySnowflake.pat_client`.)
 - `SNOWFLAKE_ORGANIZATION`
   - Optional, if you leave it off, the library will authenticate with an account name of only SNOWFLAKE_ACCOUNT
 - `SNOWFLAKE_ACCOUNT`

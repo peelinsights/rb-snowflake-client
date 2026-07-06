@@ -21,6 +21,13 @@ module RubySnowflake
         @token_semaphore = Concurrent::Semaphore.new(1)
       end
 
+      def auth_headers
+        {
+          "Authorization" => "Bearer #{jwt_token}",
+          "X-Snowflake-Authorization-Token-Type" => "KEYPAIR_JWT"
+        }
+      end
+
       def jwt_token
         return @token unless jwt_token_expired?
 
