@@ -71,6 +71,7 @@ module RubySnowflake
     JSON_PARSE_OPTIONS = { decimal_class: BigDecimal }.freeze
     VALID_RESPONSE_CODES = %w(200 202).freeze
     POLLING_RESPONSE_CODE = "202"
+    UNAUTHORIZED_RESPONSE_CODE = "401"
     POLLING_INTERVAL = 2 # seconds
 
     # can't be set after initialization
@@ -223,13 +224,14 @@ module RubySnowflake
         request = request_class.new(uri)
         request["Content-Type"] = "application/json"
         request["Accept"] = "application/json"
-        @authenticator.auth_headers.each { |name, value| request[name] = value }
         request.body = body unless body.nil?
 
         Retryable.retryable(tries: @http_retries + 1,
                             sleep: lambda {|n| 2**n }, # 1, 2, 4, 8, etc
                             on: [RetryableBadResponseError, OpenSSL::SSL::SSLError],
                             log_method: retryable_log_method) do
+          # Inside the retry, so that a retry after a refused token carries the new one.
+          @authenticator.auth_headers.each { |name, value| request[name] = value }
           response = nil
           bm = Benchmark.measure { response = connection.request(request) }
           logger.debug { "HTTP Request time: #{bm.real}" }
@@ -240,6 +242,8 @@ module RubySnowflake
 
       def raise_on_bad_response(response)
         return if VALID_RESPONSE_CODES.include? response.code
+
+        @authenticator.expire_token! if response.code == UNAUTHORIZED_RESPONSE_CODE
 
         # there are a class of errors we want to retry rather than just giving up
         if retryable_http_response_code?(response.code)
@@ -255,10 +259,12 @@ module RubySnowflake
       # shamelessly stolen from the battle tested python client
       # https://github.com/snowflakedb/snowflake-connector-python/blob/eceed981f93e29d2f4663241253b48340389f4ef/src/snowflake/connector/network.py#L191
       def retryable_http_response_code?(code)
-        # retry (in order): bad request, forbidden (token expired in flight), method not allowed,
-        # request timeout, too many requests, anything in the 500 range (504 is fairly common),
-        # anything in the 3xx range as those are mostly "redirect" responses
-        [400, 403, 405, 408, 429].include?(code.to_i) || (500..599).include?(code.to_i) ||
+        # retry (in order): bad request, unauthorized (the key-pair JWT expired in flight, which
+        # Snowflake reports as 401 / 390144 rather than the 403 the python client expects),
+        # forbidden (token expired in flight), method not allowed, request timeout, too many
+        # requests, anything in the 500 range (504 is fairly common), anything in the 3xx range as
+        # those are mostly "redirect" responses
+        [400, 401, 403, 405, 408, 429].include?(code.to_i) || (500..599).include?(code.to_i) ||
          (300..399).include?(code.to_i)
       end
 
