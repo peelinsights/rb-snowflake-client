@@ -64,6 +64,56 @@ RSpec.describe RubySnowflake::Client::KeyPairJwtAuthManager do
     end
   end
   
+  describe "token caching" do
+    let(:jwt_token_ttl) { 3540 }
+    let(:minted_at) { Time.now.to_i }
+
+    before { travel_to(minted_at) }
+
+    def travel_to(seconds)
+      allow(Time).to receive(:now).and_return(Time.at(seconds))
+    end
+
+    it "reuses the signed token rather than signing one per request" do
+      subject.jwt_token
+
+      expect(JWT).not_to receive(:encode)
+      subject.jwt_token
+    end
+
+    it "keeps using it up to 80% of the token's life" do
+      subject.jwt_token
+      travel_to(minted_at + (jwt_token_ttl * 0.79).to_i)
+
+      expect(JWT).not_to receive(:encode)
+      subject.jwt_token
+    end
+
+    it "signs a new one past that point, while the old one is still valid" do
+      subject.jwt_token
+      travel_to(minted_at + (jwt_token_ttl * 0.8).to_i)
+
+      expect(JWT).to receive(:encode).once.and_call_original
+      subject.jwt_token
+    end
+
+    it "signs a new one once the token it holds has been rejected" do
+      subject.jwt_token
+      subject.expire_token!
+
+      expect(JWT).to receive(:encode).once.and_call_original
+      subject.jwt_token
+    end
+
+    it "does not go a whole TTL unsigned because one signing attempt failed" do
+      allow(JWT).to receive(:encode).and_raise(JWT::EncodeError)
+      expect { subject.jwt_token }.to raise_error(JWT::EncodeError)
+
+      allow(JWT).to receive(:encode).and_call_original
+      expect(subject.jwt_token).to be_a(String)
+    end
+  end
+
   describe "account_name handling" do
     context "when organization is nil" do
       let(:organization) { nil }
