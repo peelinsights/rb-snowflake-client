@@ -22,6 +22,50 @@ RSpec.describe RubySnowflake::Client do
     end
   end
 
+  describe "when Snowflake refuses the token" do
+    subject(:request) { client.send(:request_with_auth_and_headers, connection, Net::HTTP::Post, "/api/v2/statements") }
+
+    let(:client) do
+      described_class.new(
+        "https://org-account.snowflakecomputing.com", OpenSSL::PKey::RSA.new(2048).to_pem, nil,
+        "org", "account", "user", nil, nil,
+        http_retries: 1, logger: Logger.new(IO::NULL)
+      )
+    end
+    let(:connection) { double("connection") }
+    let(:refused) { double("response", code: "401", body: %({"code": "390144", "message": "JWT token is invalid. "})) }
+    let(:accepted) { double("response", code: "200", body: "{}") }
+
+    before { allow(Kernel).to receive(:sleep) }
+
+    it "signs a fresh token and tries again" do
+      expect(connection).to receive(:request).twice.and_return(refused, accepted)
+      expect(JWT).to receive(:encode).twice.and_call_original
+
+      expect(request).to eq(accepted)
+    end
+
+    it "sends the new token rather than the one that was refused" do
+      sent = []
+      allow(connection).to receive(:request) do |request|
+        sent << request["Authorization"]
+        sent.one? ? refused : accepted
+      end
+      allow(JWT).to receive(:encode).and_return("first-token", "second-token")
+
+      request
+
+      expect(sent).to eq(["Bearer first-token", "Bearer second-token"])
+    end
+
+    it "still gives up rather than retrying a credential that is simply wrong" do
+      allow(connection).to receive(:request).and_return(refused)
+
+      expect { request }.to raise_error(RubySnowflake::Error, /401/)
+      expect(connection).to have_received(:request).twice
+    end
+  end
+
   describe "querying" do
     subject(:result) { client.query(query, query_name: "test_query") }
     let(:query) { "SELECT 1;" }
