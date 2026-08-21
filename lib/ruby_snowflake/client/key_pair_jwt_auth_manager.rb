@@ -7,14 +7,11 @@ require "concurrent"
 module RubySnowflake
   class Client
     class KeyPairJwtAuthManager
-      # Sign a replacement once this much of the token's life has gone, rather than at the moment
-      # it expires. Snowflake judges `exp` against its own clock, so a token handed over in the
-      # last seconds of its window can arrive already expired, and Snowflake answers that with a
-      # 401 that costs us the query it was carrying.
+      # Snowflake judges `exp` against its own clock, so the last seconds of a token's window are
+      # not ours to spend - re-sign once this much of its life has gone instead.
       REFRESH_RATIO = 0.8
 
-      # The signed token and the point we stop using it, kept together so that no reader can see
-      # one without the other.
+      # One object so that a reader cannot see the token without the deadline that goes with it.
       CachedToken = Struct.new(:value, :refresh_at) do
         def fresh?(now)
           now < refresh_at
@@ -53,8 +50,7 @@ module RubySnowflake
         end
       end
 
-      # Throw away the token we hold, so the next request signs a new one. Snowflake has told us
-      # this one is no good and re-sending it would only be refused again.
+      # For when Snowflake has refused the token we hold: the next request signs a new one.
       def expire_token!
         @cached_token.set(nil)
       end
