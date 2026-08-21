@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+### Fixed
+- A key-pair JWT that Snowflake refuses no longer costs the query carrying it. `401` joins the
+  retryable response codes (Snowflake reports an expired JWT as `401` / `390144`, not the `403`
+  the retry list assumed), the auth headers are built inside the retry rather than before it, and
+  a `401` discards the cached token so the retry signs a new one. Fixes #170
+- `KeyPairJwtAuthManager` no longer caches a token for a full TTL that it never managed to sign.
+  The expiry was stamped before signing, so a signing failure left no token at all — every
+  request until the stamp elapsed sent an empty bearer — and the unsynchronised read could hand
+  back the previous token. The token is now published with its deadline only once signing has
+  succeeded, and re-signed at 80% of the TTL rather than in its final second
 
 ## [1.6.1] - 2026-08-18
 ### Security
