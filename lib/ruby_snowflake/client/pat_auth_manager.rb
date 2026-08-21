@@ -13,8 +13,7 @@ module RubySnowflake
         { "Authorization" => "Bearer #{@access_token}" }
       end
 
-      # Nothing to drop. The PAT was issued elsewhere and we cannot mint another, so a refused
-      # one stays refused and the retry exhausts itself.
+      # Nothing to drop - the PAT was issued elsewhere, so a refused one stays refused.
       def expire_token!
       end
     end
